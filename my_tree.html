@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>트리 UI 개선</title>
+  <style>
+    ul { list-style-type: none; padding-left: 20px; }
+    li { cursor: pointer; user-select: none; position: relative; padding: 5px; }
+    .toggle-btn { margin-right: 5px; cursor: pointer; font-weight: bold; }
+    .hidden { display: none; }
+    .node-text { padding: 3px 5px; border-radius: 3px; }
+    .node-text.selected { background-color: lightgray; } /* ✅ 노드명만 음영 처리 */
+    .context-menu {
+      position: absolute;
+      background: #fff;
+      border: 1px solid #ccc;
+      padding: 5px;
+      box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+    }
+    .context-menu div {
+      padding: 5px;
+      cursor: pointer;
+    }
+    .context-menu div:hover {
+      background: #f0f0f0;
+    }
+    .context-menu hr {
+      margin: 5px 0;
+      border: none;
+      height: 1px;
+      background: #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h3>트리 구조</h3>
+  <ul id="treeContainer"></ul>
+
+  <script>
+    let treeData = [
+      { id: 1, name: "Root", parentId: null, type: "folder", expanded: true },
+      { id: 2, name: "Child 1", parentId: 1, type: "folder", expanded: false },
+      { id: 3, name: "GIF Image", parentId: 1, type: "file_GIF" },
+      { id: 4, name: "Vue Component", parentId: 1, type: "file_VUE" },
+      { id: 5, name: "Subfolder 1", parentId: 2, type: "folder", expanded: false },
+      { id: 6, name: "File 1", parentId: 2, type: "file_GIF" }
+    ];
+    let nodeIdCounter = 7;
+    let selectedNodeId = null;
+
+    const typeIconMap = {
+      folder: "📁",
+      file_GIF: "🖼️",
+      file_VUE: "📄"
+    };
+
+    function buildTree(data, parentId = null) {
+      return data
+        .filter(item => item.parentId === parentId)
+        .map(item => ({ ...item, children: buildTree(data, item.id) }));
+    }
+
+    function renderTree(tree, container) {
+      container.innerHTML = "";
+      tree.forEach(node => {
+        const li = document.createElement("li");
+        li.dataset.id = node.id;
+
+        const toggleBtn = document.createElement("span");
+        toggleBtn.className = "toggle-btn";
+        toggleBtn.textContent = node.type === "folder" ? (node.expanded ? "⌄" : ">") : "•";
+        toggleBtn.addEventListener("click", () => toggleExpand(node.id));
+
+        const icon = document.createElement("span");
+        icon.textContent = ` ${typeIconMap[node.type] || "[?]"} `;
+
+        const nodeName = document.createElement("span");
+        nodeName.textContent = node.name;
+        nodeName.className = "node-text";
+        if (node.id === selectedNodeId) nodeName.classList.add("selected"); // ✅ 선택된 노드만 음영 처리
+        nodeName.addEventListener("click", () => selectNode(node.id));
+
+        const ul = document.createElement("ul");
+        if (node.type === "folder" && !node.expanded) ul.classList.add("hidden");
+        renderTree(node.children, ul);
+
+        li.appendChild(toggleBtn);
+        li.appendChild(icon);
+        li.appendChild(nodeName);
+        li.appendChild(ul);
+        container.appendChild(li);
+
+        // 🛠 우클릭 이벤트 처리
+        li.addEventListener("contextmenu", event => {
+          event.preventDefault();
+          event.stopPropagation();
+          selectNode(node.id);
+          showContextMenu(event);
+        });
+      });
+    }
+
+    function selectNode(nodeId) {
+      selectedNodeId = nodeId;
+      updateTree();
+    }
+
+    function toggleExpand(nodeId) {
+      const node = treeData.find(n => n.id === nodeId);
+      if (node.type === "folder") {
+        node.expanded = !node.expanded;
+        updateTree();
+      }
+    }
+
+	function showContextMenu(event) {
+	  event.preventDefault();
+	  event.stopPropagation();
+
+	  const node = treeData.find(n => n.id === selectedNodeId);
+	  const isFolder = node?.type === "folder"; // ✅ 현재 노드가 폴더인지 확인
+
+	  const menu = document.createElement("div");
+	  menu.className = "context-menu";
+	  menu.style.left = `${event.pageX}px`;
+	  menu.style.top = `${event.pageY}px`;
+
+	  menu.innerHTML = `
+		${isFolder ? `
+		  <div onclick="addNode('folder')">폴더 추가</div>
+		  <div onclick="addNode('file_GIF')">GIF 파일 추가</div>
+		  <div onclick="addNode('file_VUE')">VUE 파일 추가</div>
+		  <hr>
+		` : ""}
+		<div onclick="renameNode()">이름 바꾸기</div>
+		<hr>
+		<div onclick="deleteNode()">노드 삭제</div>
+	  `;
+
+	  document.body.appendChild(menu);
+	  document.addEventListener("click", () => menu.remove(), { once: true });
+	}
+
+    function addNode(type) {
+      if (selectedNodeId !== null) {
+        const parentNode = treeData.find(n => n.id === selectedNodeId);
+        if (parentNode.type !== "folder") {
+          alert("폴더 아래에서만 노드를 추가할 수 있습니다.");
+          return;
+        }
+        treeData.push({ id: nodeIdCounter++, name: `New ${type}`, parentId: selectedNodeId, type, expanded: false });
+        updateTree();
+      }
+    }
+
+    function deleteNode() {
+      if (selectedNodeId !== null) {
+        const confirmDelete = confirm("정말 삭제 하시겠습니까?");
+        if (!confirmDelete) return;
+
+        //treeData = treeData.filter(node => node.id !== selectedNodeId && !isDescendant(selectedNodeId, node.id));
+
+		// ✅ 노드와 하위 노드를 모두 삭제
+		deleteNodeRecursive(selectedNodeId);
+
+
+        selectedNodeId = null;
+        updateTree();
+      }
+    }
+
+
+	function deleteNodeRecursive(nodeId) {
+	  // 현재 노드를 삭제
+	  treeData = treeData.filter(node => node.id !== nodeId);
+
+	  // 하위 노드를 찾아서 재귀적으로 삭제
+	  const childNodes = treeData.filter(node => node.parentId === nodeId);
+	  childNodes.forEach(child => deleteNodeRecursive(child.id));
+	}
+
+    function isDescendant(parentId, nodeId) {
+      const node = treeData.find(n => n.id === nodeId);
+      while (node) {
+        if (node.parentId === parentId) return true;
+        node = treeData.find(n => n.id === node.parentId);
+      }
+      return false;
+    }
+
+    function renameNode() {
+      if (selectedNodeId !== null) {
+        const node = treeData.find(n => n.id === selectedNodeId);
+        const newName = prompt("새 노드 이름:", node.name);
+        if (newName) {
+          node.name = newName;
+          updateTree();
+        }
+      }
+    }
+
+    function updateTree() {
+      const tree = buildTree(treeData);
+      renderTree(tree, document.getElementById("treeContainer"));
+    }
+
+    updateTree();
+  </script>
+</body>
+</html>
